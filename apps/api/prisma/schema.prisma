@@ -1,0 +1,93 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+enum Provider {
+  GOOGLE
+  CREDENTIALS
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  password     String
+  name         String
+  firstName    String?
+  lastName     String?
+  picture      String?
+  role         Role      @default(USER)
+  provider     Provider  @default(CREDENTIALS)
+  refreshToken String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  leads        Lead[]
+  uploads      Upload[]  // ← Relation to Uploads
+  aiQueries    AIQuery[] // Add relation to AIQuery
+}
+
+model Lead {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  phone     String
+  message   String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Upload {
+  id         String   @id @default(uuid())
+  filename   String
+  mimetype   String
+  size       Int
+  path       String
+  status     String   @default("Success")
+  userId     String?  
+  summary    String?
+  kpis       Json?   
+  charts     Json?    
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User?    @relation(fields: [userId], references: [id])
+  csvRows    CsvRow[] 
+  aiQueries  AIQuery[] 
+}
+
+model CsvRow {
+  id        String   @id @default(uuid())
+  data      Json
+  fileId    String
+  upload    Upload   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model AIQuery {
+  id        String   @id @default(uuid())
+  fileId    String
+  userId    String?
+  question  String
+  shareId   String?  @unique  
+  response  String
+  createdAt DateTime @default(now())
+
+  file      Upload   @relation(fields: [fileId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
+}
