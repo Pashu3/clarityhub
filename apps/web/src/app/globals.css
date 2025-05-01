@@ -1,0 +1,198 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  
+  .dark {
+    color-scheme: dark;
+  }
+}
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Default theme - Soft blue */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  
+  --card: #ffffff;
+  --card-foreground: #1e293b;
+  
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --primary-hover: #2563eb; 
+  
+  --secondary: #f1f5f9;
+  --secondary-foreground: #334155;
+  
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  
+  --accent: #f0f9ff;
+  --accent-foreground: #0369a1;
+  
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #3b82f6;
+
+  --radius: 0.5rem;
+}
+
+/* Force light mode as default regardless of browser preference */
+@media (prefers-color-scheme: dark) {
+  :root:not(.dark) {
+    color-scheme: light;
+  }
+}
+.light {
+  /* Light theme with improved contrast */
+  --background: #f9fafb; /* gray-50 for subtle background */
+  --foreground: #374151; /* gray-700 for consistent text color */
+  
+  --card: #ffffff; /* white for card backgrounds */
+  --card-foreground: #374151; /* gray-700 */
+  
+  --primary: #2563eb; /* blue-600 */
+  --primary-foreground: #ffffff;
+
+  
+  --secondary: #f3f4f6; /* gray-100 */
+  --secondary-foreground: #374151; /* gray-700 */
+  
+  --muted: #f3f4f6; /* gray-100 */
+  --muted-foreground: #6b7280; /* gray-500 for muted text */
+  
+  --accent: #eff6ff; /* blue-50 */
+  --accent-foreground: #1d4ed8; /* blue-700 for better contrast */
+  
+  --destructive: #ef4444; /* red-500 */
+  --destructive-foreground: #ffffff;
+  
+  --border: #e5e7eb; /* gray-200 */
+  --input: #f3f4f6; /* gray-100 */
+  --ring: #2563eb; /* blue-600 */
+
+  /* Light mode custom color variables */
+  --light-bg: #f9fafb; /* gray-50 for page background */
+  --light-card: #ffffff; /* white for card backgrounds */
+  --light-hover: #f3f4f6; /* gray-100 for hover states */
+  --light-active: #eff6ff; /* blue-50 for active states */
+  --light-active-text: #1d4ed8; /* blue-700 for active text */
+  --light-text: #374151; /* gray-700 for main text */
+  --light-muted: #6b7280; /* gray-500 for muted text */
+}
+
+.dark {
+  /* Dark theme with blue accents */
+  --background: #111827; /* gray-900 */
+  --foreground: #f9fafb; /* gray-50 */
+  
+  --card: #1f2937; /* gray-800 */
+  --card-foreground: #f9fafb; /* gray-50 */
+  
+  --primary: #3b82f6; /* blue-500 */
+  --primary-foreground: #ffffff;
+  --primary-hover: #2563eb; 
+  
+  --secondary: #374151; /* gray-700 */
+  --secondary-foreground: #f9fafb; /* gray-50 */
+  
+  --muted: #374151; /* gray-700 */
+  --muted-foreground: #9ca3af; /* gray-400 */
+  
+  --accent: #172554; /* blue-900 with 20% opacity often used */
+  --accent-foreground: #bfdbfe; /* blue-200 */
+  
+  --destructive: #ef4444; /* red-500 */
+  --destructive-foreground: #ffffff;
+  
+  --border: #374151; /* gray-700 */
+  --input: #374151; /* gray-700 */
+  --ring: #3b82f6; /* blue-500 */
+  
+  /* Custom color variables to match your preferred palette */
+  --dark-bg: #111827; /* gray-900 */
+  --dark-hover: #1f2937; /* gray-800 */
+  --dark-accent-bg: rgba(30, 58, 138, 0.2); /* blue-900/20 */
+  --dark-accent-text: #bfdbfe; /* blue-200 */
+  --dark-text: #d1d5db; /* gray-300 */
+  --dark-muted: #9ca3af; /* gray-400 */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans, Inter, Arial, sans-serif);
+  min-height: 100vh;
+}
+
+/* Additional utility classes */
+.bg-gradient-primary {
+  background-image: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%);
+}
+
+/* Custom dark mode classes to standardize your preferred colors */
+.dark .active-nav-item {
+  @apply bg-blue-900/20 text-blue-200;
+}
+
+.dark .hover-bg {
+  @apply hover:bg-gray-800;
+}
+
+.dark .card-bg {
+  @apply bg-gray-800;
+}
+
+/* Focus rings for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Animation utilities */
+.animate-in {
+  animation: animate-in 0.3s ease-out;
+}
+
+@keyframes animate-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
