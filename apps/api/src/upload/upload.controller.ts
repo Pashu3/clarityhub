@@ -11,7 +11,9 @@ import {
   Req,
   Res,
   BadRequestException,
-  Header,
+  ForbiddenException,
+  HttpException,
+  HttpStatus
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -19,16 +21,17 @@ import { extname } from 'path';
 import { Response } from 'express';
 import { UploadService } from './upload.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
-import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
+import { ApiTags, ApiConsumes, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { UploadResponse } from './upload.types'; 
 
 @ApiTags('Upload')
-@ApiBearerAuth()
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Post()
+  @UseGuards(OptionalJwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -65,19 +68,54 @@ export class UploadController {
       throw new BadRequestException('No file uploaded');
     }
     
-    const userId = req.user.sub;
+    // Log authentication details for debugging
+    console.log('Auth Header:', req.headers.authorization);
+    console.log('User object from request:', req.user);
     
-    return this.uploadService.saveFileMetadata(file, userId);
+    // Extract user info from JWT token if available
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const subscription = req.user?.subscription;
+    
+    console.log('Extracted userId:', userId);
+    console.log('IP Address:', ipAddress);
+    
+    // If user is authenticated but userId is missing, return error
+    if (req.headers.authorization && !userId) {
+      throw new HttpException({
+        status: 'error',
+        code: 'INVALID_TOKEN',
+        message: 'Your authentication token is invalid or expired. Please log in again.',
+      }, HttpStatus.UNAUTHORIZED);
+    }
+    
+    // Check if upload is allowed before proceeding
+    const uploadPermission = await this.uploadService.checkUploadLimits(userId, ipAddress, subscription);
+    
+    if (!uploadPermission.allowed) {
+      throw new HttpException({
+        status: 'error',
+        code: uploadPermission.reason,
+        message: uploadPermission.message,
+        details: {
+          isGuest: !userId,
+          requiresUpgrade: uploadPermission.reason === 'DAILY_LIMIT_REACHED',
+          requiresLogin: uploadPermission.reason === 'GUEST_DAILY_LIMIT_REACHED'
+        }
+      }, HttpStatus.FORBIDDEN);
+    }
+    
+    return this.uploadService.saveFileMetadata(file, userId, ipAddress);
   }
-
-  @UseGuards(JwtAuthGuard)
+  
   @Get()
+  @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'startDate', required: false, type: Date })
   @ApiQuery({ name: 'endDate', required: false, type: Date })
-  async getUserUploads(
+  async getUploads(
     @Req() req,
     @Query('page') page = '1',
     @Query('limit') limit = '10',
@@ -85,40 +123,55 @@ export class UploadController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
-    const userId = req.user.sub;
-    return this.uploadService.getUploadsForUser(
-      userId,
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    
+    return this.uploadService.getUploads(
       parseInt(page),
       parseInt(limit),
       search,
       startDate ? new Date(startDate) : undefined,
-      endDate ? new Date(endDate) : undefined
+      endDate ? new Date(endDate) : undefined,
+      userId,
+      ipAddress
     );
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get(':id')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
   @ApiParam({ name: 'id', description: 'Upload ID' })
   async getUpload(@Param('id') id: string, @Req() req) {
-    return this.uploadService.getUploadById(id, req.user.sub);
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    
+    return this.uploadService.getUploadById(id, userId, ipAddress);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Delete(':id')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
   @ApiParam({ name: 'id', description: 'Upload ID' })
   async deleteUpload(@Param('id') id: string, @Req() req) {
-    return this.uploadService.deleteUpload(id, req.user.sub);
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    
+    return this.uploadService.deleteUpload(id, userId, ipAddress);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get(':id/export')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
   @ApiParam({ name: 'id', description: 'Upload ID' })
-  async exportCsv(@Param('id') id: string, @Res() res: Response) {
+  async exportCsv(@Param('id') id: string, @Res() res: Response, @Req() req) {
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    
+    // First verify the user has access to this upload
+    await this.uploadService.getUploadById(id, userId, ipAddress);
+    
     return this.uploadService.exportCsv(id, res);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get(':id/search')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
   @ApiParam({ name: 'id', description: 'Upload ID' })
   @ApiQuery({ name: 'term', description: 'Search term' })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -127,8 +180,31 @@ export class UploadController {
     @Param('id') id: string,
     @Query('term') term: string,
     @Query('page') page = '1',
-    @Query('limit') limit = '10'
+    @Query('limit') limit = '10',
+    @Req() req
   ) {
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    
+    // Verify access first
+    await this.uploadService.getUploadById(id, userId, ipAddress);
+    
     return this.uploadService.searchRows(id, term, parseInt(page), parseInt(limit));
+  }
+
+  @Get('check-limits')
+  @UseGuards(OptionalJwtAuthGuard)
+  async checkUploadLimits(@Req() req) {
+    const userId = req.user?.sub;
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const subscription = req.user?.subscription;
+    
+    const limits = await this.uploadService.checkUploadLimits(userId, ipAddress, subscription);
+    
+    return {
+      ...limits,
+      userStatus: userId ? 'authenticated' : 'guest',
+      isPremium: subscription?.plan === 'PREMIUM' && subscription?.isActive
+    };
   }
 }

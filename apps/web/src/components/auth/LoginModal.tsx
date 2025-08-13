@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, Eye, EyeOff, Mail, Lock, 
   ExternalLink, AlertCircle, Loader2, 
-  Github, User, Building, CheckCircle2
+  Github, User, CheckCircle2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
+import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
+import { apiURL } from "@/constants/api";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -23,17 +26,17 @@ export default function LoginModal({
   onSuccess,
   darkMode = false
 }: LoginModalProps) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [agreeToTerms, setAgreeToTerms] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"login" | "forgot" | "register" | "register-2">("login");
+  const router = useRouter();
+  const auth = useAuth();
+  const [view, setView] = useState<"login" | "forgot" | "register">("login");
   
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+    }
+  }, [isOpen]);
+
   // Get password strength
   const getPasswordStrength = (password: string) => {
     if (!password) return { label: "", color: "", width: "0%" };
@@ -63,132 +66,76 @@ export default function LoginModal({
     }
   };
   
-  const passwordStrength = getPasswordStrength(password);
+  const passwordStrength = getPasswordStrength(auth.password);
   
+  // Handle login submission
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setIsLoading(true);
-    
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // For demo purposes - validation
-      if (!email.includes("@")) {
-        throw new Error("Please enter a valid email address");
-      }
-      
-      if (password.length < 6) {
-        throw new Error("Password must be at least 6 characters");
-      }
-      
-      // Success
+    await auth.handleLogin(e, () => {
       if (onSuccess) {
         onSuccess();
       }
-      
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+      router.push('/menu/dashboard');
+    });
+  };
+  const handleGoogleSignIn = () => {
+    window.location.href = `${apiURL}/auth/google`;
   };
   
+  const handleGithubSignIn = () => {
+    window.location.href = `${apiURL}/auth/github`;
+  };
   const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setIsLoading(true);
-    
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // For demo purposes
-      if (!email.includes("@")) {
-        throw new Error("Please enter a valid email address");
-      }
-      
-      // Success
-      setError(null);
-      alert(`Password reset link sent to ${email}`);
+    await auth.handleForgotPassword(e, () => {
+      auth.setError(null);
       setView("login");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send reset link. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
   
-  const handleRegisterStep1 = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    auth.setError(null);
     
     // Validate form
-    if (!fullName.trim()) {
-      setError("Full name is required");
+    if (!auth.name.trim()) {
+      auth.setError("Full name is required");
       return;
     }
     
-    if (!email.includes("@")) {
-      setError("Please enter a valid email address");
+    if (!auth.email.includes("@")) {
+      auth.setError("Please enter a valid email address");
       return;
     }
     
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
+    if (auth.password.length < 8) {
+      auth.setError("Password must be at least 8 characters");
       return;
     }
     
-    // Move to step 2
-    setView("register-2");
-  };
-  
-  const handleRegisterComplete = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setIsLoading(true);
-    
-    // Validate form
-    if (!companyName.trim()) {
-      setError("Company name is required");
-      setIsLoading(false);
+    if (!auth.agreeToTerms) {
+      auth.setError("You must agree to the terms and privacy policy");
       return;
     }
     
-    if (!agreeToTerms) {
-      setError("You must agree to the terms and privacy policy");
-      setIsLoading(false);
-      return;
-    }
-    
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Success
+    await auth.handleRegister(e, () => {
       if (onSuccess) {
         onSuccess();
       }
-      
-      // Registration successful message
-      alert("Registration successful! Welcome to ClarityHub.");
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+      router.push('/menu/dashboard');
+    });
   };
   
+  // Reset all form fields
   const resetForm = () => {
-    setEmail("");
-    setPassword("");
-    setFullName("");
-    setCompanyName("");
-    setAgreeToTerms(false);
-    setError(null);
+    auth.setName("");
+    auth.setEmail("");
+    auth.setPassword("");
+    auth.setAgreeToTerms(false);
+    auth.setRememberMe(false);
+    auth.setShowPassword(false);
+    auth.setError(null);
+    setView("login");
   };
   
   if (!isOpen) return null;
@@ -228,8 +175,7 @@ export default function LoginModal({
               <h2 className="text-xl font-bold text-center">
                 {view === "login" ? "Sign in to ClarityHub" : 
                  view === "forgot" ? "Reset your password" :
-                 view === "register" ? "Create an account" :
-                 "Complete your registration"}
+                 "Create an account"}
               </h2>
               
               <p className="text-center text-sm mt-2 text-gray-500 dark:text-gray-400">
@@ -237,9 +183,7 @@ export default function LoginModal({
                   ? "Enter your credentials to access your account"
                   : view === "forgot"
                   ? "We'll send you an email with a reset link"
-                  : view === "register"
-                  ? "Fill in your information to get started"
-                  : "Just a few more details to complete your profile"
+                  : "Fill in your information to get started"
                 }
               </p>
             </div>
@@ -247,7 +191,7 @@ export default function LoginModal({
           
           {/* Error message */}
           <AnimatePresence>
-            {error && (
+            {auth.error && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -255,7 +199,7 @@ export default function LoginModal({
                 className="mx-6 mb-4 p-3 rounded-lg flex items-center text-sm bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-200"
               >
                 <AlertCircle size={16} className="mr-2 flex-shrink-0" />
-                <span>{error}</span>
+                <span>{auth.error}</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -274,8 +218,8 @@ export default function LoginModal({
                     </div>
                     <input
                       type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      value={auth.email}
+                      onChange={(e) => auth.setEmail(e.target.value)}
                       className="pl-10 pr-4 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
                       placeholder="your.email@example.com"
                       required
@@ -301,9 +245,9 @@ export default function LoginModal({
                       <Lock size={18} className="text-gray-500 dark:text-gray-400" />
                     </div>
                     <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      type={auth.showPassword ? "text" : "password"}
+                      value={auth.password}
+                      onChange={(e) => auth.setPassword(e.target.value)}
                       className="pl-10 pr-10 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
                       placeholder="••••••••"
                       required
@@ -311,10 +255,10 @@ export default function LoginModal({
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
                       <button
                         type="button"
-                        onClick={() => setShowPassword(!showPassword)}
+                        onClick={() => auth.setShowPassword(!auth.showPassword)}
                         className="text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-300"
                       >
-                        {showPassword ? (
+                        {auth.showPassword ? (
                           <EyeOff size={18} />
                         ) : (
                           <Eye size={18} />
@@ -328,8 +272,8 @@ export default function LoginModal({
                   <input
                     id="remember-me"
                     type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
+                    checked={auth.rememberMe}
+                    onChange={(e) => auth.setRememberMe(e.target.checked)}
                     className="h-4 w-4 rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
                   />
                   <label
@@ -342,14 +286,14 @@ export default function LoginModal({
                 
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={auth.isLoading}
                   className={`w-full py-2.5 px-4 rounded-lg font-medium text-white 
-                    ${isLoading 
+                    ${auth.isLoading 
                       ? "bg-blue-500 opacity-70 cursor-not-allowed" 
                       : "bg-blue-500 hover:bg-blue-600"
                     } transition-colors flex items-center justify-center`}
                 >
-                  {isLoading ? (
+                  {auth.isLoading ? (
                     <>
                       <Loader2 size={18} className="animate-spin mr-2" />
                       Signing in...
@@ -366,24 +310,26 @@ export default function LoginModal({
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    className="flex items-center justify-center py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-                  >
-                    {/* Google icon as inline SVG */}
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 mr-2" fill="currentColor">
-                      <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/>
-                    </svg>
-                    <span className="text-sm font-medium">Google</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex items-center justify-center py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-                  >
-                    <Github size={18} className="mr-2" />
-                    <span className="text-sm font-medium">GitHub</span>
-                  </button>
-                </div>
+  <button
+    type="button"
+    onClick={handleGoogleSignIn}
+    className="flex items-center justify-center py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+  >
+    {/* Google icon as inline SVG */}
+    <svg viewBox="0 0 24 24" className="h-5 w-5 mr-2" fill="currentColor">
+      <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/>
+    </svg>
+    <span className="text-sm font-medium">Google</span>
+  </button>
+  <button
+    type="button"
+    onClick={handleGithubSignIn}
+    className="flex items-center justify-center py-2.5 px-4 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+  >
+    <Github size={18} className="mr-2" />
+    <span className="text-sm font-medium">GitHub</span>
+  </button>
+</div>
                 
                 <p className="text-center text-sm mt-6 text-gray-500 dark:text-gray-400">
                   Don't have an account?{" "}
@@ -413,8 +359,8 @@ export default function LoginModal({
                     </div>
                     <input
                       type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      value={auth.email}
+                      onChange={(e) => auth.setEmail(e.target.value)}
                       className="pl-10 pr-4 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
                       placeholder="your.email@example.com"
                       required
@@ -424,14 +370,14 @@ export default function LoginModal({
                 
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={auth.isLoading}
                   className={`w-full py-2.5 px-4 rounded-lg font-medium text-white 
-                    ${isLoading 
+                    ${auth.isLoading 
                       ? "bg-blue-500 opacity-70 cursor-not-allowed" 
                       : "bg-blue-500 hover:bg-blue-600"
                     } transition-colors flex items-center justify-center`}
                 >
-                  {isLoading ? (
+                  {auth.isLoading ? (
                     <>
                       <Loader2 size={18} className="animate-spin mr-2" />
                       Sending reset link...
@@ -452,7 +398,7 @@ export default function LoginModal({
             )}
             
             {view === "register" && (
-              <form onSubmit={handleRegisterStep1} className="space-y-4">
+              <form onSubmit={handleRegister} className="space-y-4">
                 {/* Full Name */}
                 <div>
                   <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
@@ -464,8 +410,8 @@ export default function LoginModal({
                     </div>
                     <input
                       type="text"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      value={auth.name}
+                      onChange={(e) => auth.setName(e.target.value)}
                       className="pl-10 pr-4 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
                       placeholder="John Doe"
                       required
@@ -484,8 +430,8 @@ export default function LoginModal({
                     </div>
                     <input
                       type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      value={auth.email}
+                      onChange={(e) => auth.setEmail(e.target.value)}
                       className="pl-10 pr-4 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
                       placeholder="your.email@example.com"
                       required
@@ -503,9 +449,9 @@ export default function LoginModal({
                       <Lock size={18} className="text-gray-500 dark:text-gray-400" />
                     </div>
                     <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      type={auth.showPassword ? "text" : "password"}
+                      value={auth.password}
+                      onChange={(e) => auth.setPassword(e.target.value)}
                       className="pl-10 pr-10 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
                       placeholder="••••••••"
                       required
@@ -513,10 +459,10 @@ export default function LoginModal({
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
                       <button
                         type="button"
-                        onClick={() => setShowPassword(!showPassword)}
+                        onClick={() => auth.setShowPassword(!auth.showPassword)}
                         className="text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-300"
                       >
-                        {showPassword ? (
+                        {auth.showPassword ? (
                           <EyeOff size={18} />
                         ) : (
                           <Eye size={18} />
@@ -526,7 +472,7 @@ export default function LoginModal({
                   </div>
                   
                   {/* Password strength indicator */}
-                  {password && (
+                  {auth.password && (
                     <div className="mt-1.5">
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -543,11 +489,53 @@ export default function LoginModal({
                   )}
                 </div>
                 
+                {/* Terms Agreement */}
+                <div className="pt-2">
+                  <div className={`flex items-start ${auth.error && !auth.agreeToTerms ? 'text-red-600 dark:text-red-400' : ''}`}>
+                    <input
+                      type="checkbox"
+                      id="terms"
+                      checked={auth.agreeToTerms}
+                      onChange={(e) => auth.setAgreeToTerms(e.target.checked)}
+                      className="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:focus:ring-blue-600 mt-0.5"
+                    />
+                    <label 
+                      htmlFor="terms" 
+                      className={`ml-2 block text-sm ${
+                        auth.error && !auth.agreeToTerms
+                          ? 'text-red-600 dark:text-red-400' 
+                          : 'text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      I agree to the{" "}
+                      <a href="#" className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                        Terms of Service
+                      </a>{" "}
+                      and{" "}
+                      <a href="#" className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                        Privacy Policy
+                      </a>
+                    </label>
+                  </div>
+                </div>
+                
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 rounded-lg font-medium text-white bg-blue-500 hover:bg-blue-600 transition-colors flex items-center justify-center"
+                  disabled={auth.isLoading}
+                  className={`w-full py-2.5 px-4 rounded-lg font-medium text-white 
+                    ${auth.isLoading 
+                      ? "bg-blue-500 opacity-70 cursor-not-allowed" 
+                      : "bg-blue-500 hover:bg-blue-600"
+                    } transition-colors flex items-center justify-center`}
                 >
-                  Continue
+                  {auth.isLoading ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin mr-2" />
+                      Creating account...
+                    </>
+                  ) : (
+                    "Create Account"
+                  )}
                 </button>
                 
                 <div className="pt-2 flex items-center text-gray-500 dark:text-gray-400">
@@ -573,100 +561,6 @@ export default function LoginModal({
                   >
                     <Github size={18} className="mr-2" />
                     <span className="text-sm font-medium">GitHub</span>
-                  </button>
-                </div>
-                
-                <p className="text-center text-sm mt-6 text-gray-500 dark:text-gray-400">
-                  Already have an account?{" "}
-                  <button
-                    type="button"
-                    onClick={() => setView("login")}
-                    className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                  >
-                    Sign in
-                  </button>
-                </p>
-              </form>
-            )}
-            
-            {view === "register-2" && (
-              <form onSubmit={handleRegisterComplete} className="space-y-4">
-                {/* Company Name */}
-                <div>
-                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                    Company Name
-                  </label>
-                  <div className="relative rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Building size={18} className="text-gray-500 dark:text-gray-400" />
-                    </div>
-                    <input
-                      type="text"
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      className="pl-10 pr-4 py-2.5 w-full rounded-lg focus:outline-none focus:ring-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 dark:focus:ring-blue-600"
-                      placeholder="Acme Inc."
-                      required
-                    />
-                  </div>
-                </div>
-                
-                {/* Terms Agreement */}
-                <div className="pt-2">
-                  <div className={`flex items-start ${error && !agreeToTerms ? 'text-red-600 dark:text-red-400' : ''}`}>
-                    <input
-                      type="checkbox"
-                      id="terms"
-                      checked={agreeToTerms}
-                      onChange={(e) => setAgreeToTerms(e.target.checked)}
-                      className="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:focus:ring-blue-600 mt-0.5"
-                    />
-                    <label 
-                      htmlFor="terms" 
-                      className={`ml-2 block text-sm ${
-                        error && !agreeToTerms
-                          ? 'text-red-600 dark:text-red-400' 
-                          : 'text-gray-600 dark:text-gray-400'
-                      }`}
-                    >
-                      I agree to the{" "}
-                      <a href="#" className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
-                        Terms of Service
-                      </a>{" "}
-                      and{" "}
-                      <a href="#" className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
-                        Privacy Policy
-                      </a>
-                    </label>
-                  </div>
-                </div>
-                
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setView("register")}
-                    className="flex-1 py-2.5 px-4 rounded-lg font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    Back
-                  </button>
-                  
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className={`flex-1 py-2.5 px-4 rounded-lg font-medium text-white 
-                      ${isLoading 
-                        ? "bg-blue-500 opacity-70 cursor-not-allowed" 
-                        : "bg-blue-500 hover:bg-blue-600"
-                      } transition-colors flex items-center justify-center`}
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin mr-2" />
-                        Creating account...
-                      </>
-                    ) : (
-                      "Create Account"
-                    )}
                   </button>
                 </div>
                 

@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service'; 
 import { Express, Response } from 'express';
 import { createReadStream, promises as fsPromises } from 'fs';
@@ -6,45 +6,89 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'csv-parse';
 import * as fastcsv from 'fast-csv';
-import { AiService } from '../ai/ai.service'; 
+import { AiService } from '../ai/ai.service';
+import { UploadUsageService } from '../upload-usage/upload-usage.service';
+import { Chart, KPI, UploadResponse } from './upload.types'; // Import the shared types
 
 @Injectable()
 export class UploadService {
   constructor(
     private prisma: PrismaService,
-    private aiService: AiService 
+    private aiService: AiService,
+    private uploadUsageService: UploadUsageService
   ) {}
 
-  async saveFileMetadata(file: Express.Multer.File, userId: string) {
+  async saveFileMetadata(file: Express.Multer.File, userId?: string, ipAddress?: string): Promise<UploadResponse> {
     const { filename, mimetype, size, path } = file;
-
+  
+    const uploadPermission = await this.uploadUsageService.checkUploadAllowed(userId, ipAddress);
+    if (!uploadPermission.allowed) {
+      throw new ForbiddenException(uploadPermission.message || 'Upload not allowed');
+    }
+  
     const upload = await this.prisma.upload.create({
       data: {
         filename,
         mimetype,
         size,
         path,
-        userId,
+        userId, 
+        guestId: !userId ? ipAddress : undefined, 
       },
     });
-
+  
+    // Log the usage
+    await this.uploadUsageService.createUsageRecord(upload.id, userId, ipAddress);
+  
     const stats = await this.parseCsvAndGenerateStats(path, upload.id);
-
+  
     const rows = await this.prisma.csvRow.findMany({
       where: { fileId: upload.id },
       take: 50, 
     });
-
-    const previewData = rows.slice(0, 10);
-    const summary = await this.aiService.generateSummaryAndKPIs(previewData);
-
-    const { kpis, charts } = await this.aiService.generateKPIsAndCharts(rows);
-
-    await this.prisma.upload.update({
-      where: { id: upload.id },
-      data: { summary, kpis, charts },
-    });
-
+  
+    let summary = 'Data uploaded successfully. Basic analysis available.';
+    let kpis: KPI[] = [];
+    let charts: Chart[] = [];
+  
+    // Wrap AI calls in try/catch to handle API errors
+    try {
+      const previewData = rows.slice(0, 10);
+      summary = await this.aiService.generateSummaryAndKPIs(previewData);
+      const aiResults = await this.aiService.generateKPIsAndCharts(rows);
+      kpis = aiResults.kpis || [];
+      charts = aiResults.charts || [];
+  
+      await this.prisma.upload.update({
+        where: { id: upload.id },
+        data: { 
+          summary, 
+          kpis: kpis as any, 
+          charts: charts as any, 
+        },
+      });
+    } catch (error) {
+      console.error('Error generating AI insights:', error);
+      
+      // Still update the upload, but with basic info
+      await this.prisma.upload.update({
+        where: { id: upload.id },
+        data: { 
+          summary: 'AI analysis unavailable. You can still explore your data using the built-in tools.',
+          kpis: [],
+          charts: []
+        },
+      });
+    }
+  
+    let remainingUploads: number | string = 0;
+    
+    if (typeof uploadPermission.remaining === 'number') {
+      remainingUploads = uploadPermission.remaining > 0 ? uploadPermission.remaining - 1 : 0;
+    } else if (uploadPermission.reason === 'PREMIUM_SUBSCRIPTION') {
+      remainingUploads = 'unlimited';
+    }
+  
     return {
       message: 'File uploaded successfully',
       fileId: upload.id,
@@ -54,11 +98,17 @@ export class UploadService {
       summary,
       kpis,
       charts,
-      stats
+      stats,
+      uploadLimits: {
+        remaining: remainingUploads,
+        userType: userId ? 'registered' : 'guest',
+        plan: uploadPermission.reason === 'PREMIUM_SUBSCRIPTION' ? 'premium' : 'free'
+      }
     };
   }
+  
 
-  async getUploadById(id: string, userId?: string) {
+  async getUploadById(id: string, userId?: string, ipAddress?: string) {
     const upload = await this.prisma.upload.findUnique({
       where: { id },
       include: {
@@ -66,19 +116,33 @@ export class UploadService {
       },
     });
 
-    if (userId && upload?.userId !== userId) {
+    if (!upload) {
+      throw new UnauthorizedException('Upload not found');
+    }
+
+    if (!userId && upload.guestId === ipAddress) {
+      return upload;
+    }
+
+    if (userId && upload.userId && upload.userId !== userId) {
       throw new UnauthorizedException('You do not have access to this upload');
     }
 
     return upload;
   }
 
-  async deleteUpload(id: string, userId?: string) {
+  async deleteUpload(id: string, userId?: string, ipAddress?: string) {
     const upload = await this.prisma.upload.findUnique({
       where: { id },
     });
 
-    if (userId && upload?.userId !== userId) {
+    if (!upload) {
+      throw new UnauthorizedException('Upload not found');
+    }
+
+    if (!userId && upload.guestId === ipAddress) {
+    }
+    else if (userId && upload.userId && upload.userId !== userId) {
       throw new UnauthorizedException('You do not have access to this upload');
     }
 
@@ -95,16 +159,32 @@ export class UploadService {
     });
   }
 
-  async getUploadsForUser(
-    userId: string, 
+  async getUploads(
     page = 1, 
     limit = 10,
     search?: string,
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    userId?: string,
+    ipAddress?: string
   ) {
-    // Build where clause with filters
-    const where: any = { userId };
+    const where: any = {};
+    
+    if (userId) {
+      where.userId = userId;
+    } else if (ipAddress) {
+      where.guestId = ipAddress;
+    } else {
+      return {
+        uploads: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
     
     // Add search
     if (search) {
@@ -114,7 +194,6 @@ export class UploadService {
       ];
     }
     
-    // Add date range filter
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = startDate;
@@ -164,7 +243,6 @@ export class UploadService {
             if (err) {
               throw new InternalServerErrorException('Error while downloading CSV');
             }
-            // Clean up the file after download
             fs.unlink(csvFilePath, () => {});
           });
         });
@@ -173,7 +251,9 @@ export class UploadService {
       throw new InternalServerErrorException('Failed to export CSV: ' + err.message);
     }
   }
-  
+  async checkUploadLimits(userId?: string, ipAddress?: string, subscription?: any) {
+    return this.uploadUsageService.checkUploadAllowed(userId, ipAddress, subscription);
+  }
   async searchRows(
     fileId: string, 
     searchTerm: string, 
@@ -181,13 +261,10 @@ export class UploadService {
     limit = 10
   ) {
     try {
-      // This is a simplified approach - for production, consider using a database
-      // that supports full-text search like Postgres with pg_trgm extension
       const allRows = await this.prisma.csvRow.findMany({
         where: { fileId },
       });
       
-      // Filter rows that contain the search term in any field
       const filteredRows = allRows.filter(row => {
         const values = Object.values(row.data as Record<string, any>);
         return values.some(value => 
@@ -195,7 +272,6 @@ export class UploadService {
         );
       });
       
-      // Apply pagination
       const paginatedRows = filteredRows.slice((page - 1) * limit, page * limit);
       
       return {

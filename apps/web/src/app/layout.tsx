@@ -2,6 +2,7 @@ import { ThemeProvider } from "@/providers/ThemeProvider";
 import ClientLayout from "@/providers/ClientLayout";
 import "./globals.css";
 import type { Metadata } from "next";
+import { ToastProvider } from "@/context/ToasterProvider";
 
 export const metadata: Metadata = {
   title: "ClarityHub",
@@ -23,9 +24,11 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <ClientLayout>
-            {children}
-          </ClientLayout>
+            <ToastProvider>
+                <ClientLayout>
+                  {children}
+                </ClientLayout>
+            </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

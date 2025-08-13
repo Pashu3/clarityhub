@@ -7,15 +7,18 @@ import { motion, useAnimation, AnimatePresence } from "framer-motion";
 import { 
   ChevronRight,
   ArrowLeftToLine,
-  Settings
+  Settings,
+  Menu,
+  PanelLeft,
+  PanelLeftClose,
+  ChevronLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { navigationItems } from "@/config/navigation";
 
-// Export drawer widths as constants (using Tailwind classes)
-export const DRAWER_COLLAPSED_WIDTH = "w-20"; // 5rem (80px)
-export const DRAWER_EXPANDED_WIDTH = "w-64"; // 16rem (256px)
+export const DRAWER_COLLAPSED_WIDTH = "w-20"; 
+export const DRAWER_EXPANDED_WIDTH = "w-64"; 
 
 interface NavigationDrawerProps {
   onExpandChange?: (expanded: boolean) => void;
@@ -71,16 +74,27 @@ export function NavigationDrawer({
         className
       )}
     >
-      {/* Logo and Expanded Toggle */}
-      <div className="flex h-16 items-center justify-between px-5 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex items-center">
-          <motion.div 
-            className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-600 text-white"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <span className="text-xl font-bold">C</span>
-          </motion.div>
+      <div className="flex h-16 items-center px-5 border-b border-gray-100 dark:border-gray-800">
+        <div className="flex items-center flex-1">
+          {expanded ? (
+            <motion.div 
+              className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-600 text-white"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <span className="text-xl font-bold">C</span>
+            </motion.div>
+          ) : (
+            <motion.button
+              onClick={toggleDrawer}
+              className="flex h-10 w-10 items-center justify-center rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              aria-label="Open panel"
+            >
+              <PanelLeft size={20} />
+            </motion.button>
+          )}
           
           <AnimatePresence>
             {expanded && (
@@ -96,21 +110,17 @@ export function NavigationDrawer({
           </AnimatePresence>
         </div>
         
-        <AnimatePresence>
-          {expanded && (
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={toggleDrawer}
-              className="rounded-full p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-            >
-              <ArrowLeftToLine size={20} />
-            </motion.button>
-          )}
-        </AnimatePresence>
+        {/* Toggle button - only visible when expanded */}
+        {expanded && (
+          <motion.button
+            onClick={toggleDrawer}
+            className="rounded-full p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <PanelLeftClose size={20} />
+          </motion.button>
+        )}
       </div>
       
       {/* Navigation Items */}
@@ -173,20 +183,8 @@ export function NavigationDrawer({
         </ul>
       </div>
       
-      {/* Expand button and footer */}
-      <div className="absolute bottom-0 left-0 w-full p-3 pt-8">
-        {!expanded && (
-          <motion.button
-            onClick={toggleDrawer}
-            className="flex w-full items-center justify-center rounded-md py-2.5 transition-colors bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <ChevronRight size={20} />
-          </motion.button>
-        )}
-        
-        <div className="flex items-center rounded-md px-3 py-3 text-sm transition-colors cursor-pointer mt-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white">
+      <div className="absolute bottom-0 left-0 w-full p-3 pt-8 border-t border-gray-100 dark:border-gray-800">
+        <div className="flex items-center rounded-md px-3 py-3 text-sm transition-colors cursor-pointer text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white">
           <Settings className={cn(
             "h-5 w-5 transition-transform hover:rotate-45",
             expanded ? "mr-3" : "mx-auto"

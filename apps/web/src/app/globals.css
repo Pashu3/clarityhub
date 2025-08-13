@@ -88,7 +88,7 @@
 
 .dark {
   /* Dark theme with blue accents */
-  --background: #111827; /* gray-900 */
+  --background: #1b1d21; /* gray-900 */
   --foreground: #f9fafb; /* gray-50 */
   
   --card: #1f2937; /* gray-800 */
@@ -115,7 +115,7 @@
   --ring: #3b82f6; /* blue-500 */
   
   /* Custom color variables to match your preferred palette */
-  --dark-bg: #111827; /* gray-900 */
+  --dark-bg: #1b1d21; /* gray-900 */
   --dark-hover: #1f2937; /* gray-800 */
   --dark-accent-bg: rgba(30, 58, 138, 0.2); /* blue-900/20 */
   --dark-accent-text: #bfdbfe; /* blue-200 */

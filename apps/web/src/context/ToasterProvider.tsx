@@ -1,0 +1,50 @@
+"use client";
+import React, { createContext, useContext, useState } from "react";
+import { AnimatePresence } from "framer-motion";
+import { Toast, ToastType } from "@/components/ui/Toast";
+
+type ToastContextType = {
+  showToast: (message: string, type: ToastType) => void;
+};
+
+const ToastContext = createContext<ToastContextType | undefined>(undefined);
+
+export const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) {
+    throw new Error("useToast must be used within a ToastProvider");
+  }
+  return context;
+};
+
+export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
+  const [toast, setToast] = useState<{
+    message: string;
+    type: ToastType;
+    id: number;
+  } | null>(null);
+
+  const showToast = (message: string, type: ToastType) => {
+    setToast({ message, type, id: Date.now() });
+  };
+
+  const closeToast = () => {
+    setToast(null);
+  };
+
+  return (
+    <ToastContext.Provider value={{ showToast }}>
+      {children}
+      <AnimatePresence>
+        {toast && (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            onClose={closeToast}
+          />
+        )}
+      </AnimatePresence>
+    </ToastContext.Provider>
+  );
+};

@@ -9,7 +9,37 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  ANNUAL
+}
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+  INACTIVE
+}
 
+enum LeadSource {
+  WEBSITE
+  REFERRAL
+  SOCIAL_MEDIA
+  EMAIL_CAMPAIGN
+  WEBINAR
+  CONFERENCE
+  COLD_CALL
+  OTHER
+}
 enum Role {
   USER
   ADMIN
@@ -20,7 +50,127 @@ enum Provider {
   GOOGLE
   CREDENTIALS
 }
+enum DataExportFormat {
+  CSV
+  XLSX
+  JSON
+}
+enum ContentType {
+  GUIDE
+  DOCUMENTATION
+  FAQ
+  TUTORIAL
+  ARTICLE
+}
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  RESOLVED
+  CLOSED
+}
 
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketCategory {
+  GENERAL
+  ACCOUNT_MANAGEMENT
+  BILLING
+  DASHBOARD
+  INTEGRATIONS
+  DATA_IMPORT
+  REPORTING
+  TECHNICAL_ISSUE
+  FEATURE_REQUEST
+  OTHER
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  UNDER_REVIEW
+  ARCHIVED
+}
+
+enum ContentCategory {
+  ONBOARDING
+  FEATURES
+  SUPPORT
+  ACCOUNT
+  INTEGRATIONS
+  SECURITY
+  BILLING
+  DATA_MANAGEMENT
+}
+
+
+enum DataType {
+  USERS
+  LEADS
+  UPLOADS
+  ANALYTICS
+  INTERACTIONS
+  FULL
+  CUSTOM
+}
+
+enum DataOperationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  COMPLETED_WITH_ERRORS
+}
+
+enum BackupType {
+  FULL
+  PARTIAL
+  DIFFERENTIAL
+}
+enum PaymentGateway {
+  RAZORPAY
+}
+enum PaymentMode {
+  CREDIT_CARD
+  DEBIT_CARD
+  NET_BANKING
+  UPI
+  WALLET
+  EMI
+}
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+enum InvoiceFormat {
+  PDF
+  HTML
+  CSV
+}
+
+enum RefundPolicy {
+  FULL_REFUND_WITHIN_7_DAYS
+  PRORATED_REFUND
+  NO_REFUNDS
+  CASE_BY_CASE
+}
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+  VOID
+  REFUNDED
+}
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -32,26 +182,79 @@ model User {
   role         Role      @default(USER)
   provider     Provider  @default(CREDENTIALS)
   refreshToken String?
+  isActive     Boolean   @default(true)     
+  lastLoginAt  DateTime? // Track last login time
+  lastSeenAt   DateTime? // Track last activity time
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-
   leads        Lead[]
-  uploads      Upload[]  // ← Relation to Uploads
-  aiQueries    AIQuery[] // Add relation to AIQuery
+  uploads      Upload[]
+  aiQueries    AIQuery[]
+     mfaEnabled     Boolean   @default(false)
+  mfaSecret      String?
+  mfaVerified    Boolean   @default(false)
+  backupCodes    String[]  @default([])
+  subscription UserSubscription?
+  uploadUsage  UploadUsage[]
+  receivedSharedChats SharedChatUser[]
+  createdInteractions LeadInteraction[]
+  dataExports    DataExport[]
+  dataImports    DataImport[]
+  dataBackups    DataBackup[]
+  loginAttempts      LoginAttempt[]
+  sessions           UserSession[]
+  auditLogs          AuditLog[]
+  securityAlerts     SecurityAlert[]
+  resolvedAlerts     SecurityAlert[]  @relation("AlertResolver")
+    authoredContent Content[] 
+  authoredFaqs FAQ[] 
+    supportTickets      SupportTicket[] 
+  assignedTickets     SupportTicket[] @relation("AssignedTickets") 
+  ticketResponses     TicketResponse[]
+  liveChatSessions    LiveChatSession[]
+  cannedResponses     CannedResponse[]
+    payments          Payment[]
+  invoices          Invoice[]
 }
 
 model Lead {
-  id        String   @id @default(uuid())
-  name      String
-  email     String
-  phone     String
-  message   String?
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String     @id @default(uuid())
+  name          String
+  email         String
+  phone         String
+  message       String?
+  
+  // New fields for enhanced tracking
+  status        LeadStatus @default(NEW)
+  source        LeadSource @default(WEBSITE)
+  value         Float?     
+  lastContactAt DateTime?  
+  notes         String?    
+  tags          String[]   
+  userId        String
+  user          User       @relation(fields: [userId], references: [id])
+  interactions  LeadInteraction[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 }
-
+model LeadInteraction {
+  id          String   @id @default(uuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type        String   
+  notes       String?
+  outcome     String?
+  scheduledAt DateTime? 
+  completedAt DateTime? 
+  createdBy   String
+  createdByUser User   @relation(fields: [createdBy], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([leadId])
+  @@index([createdAt])
+  @@index([createdBy])
+}
 model Upload {
   id         String   @id @default(uuid())
   filename   String
@@ -59,16 +262,21 @@ model Upload {
   size       Int
   path       String
   status     String   @default("Success")
-  userId     String?  
+  userId     String?
+  guestId    String?
   summary    String?
-  kpis       Json?   
-  charts     Json?    
+  kpis       Json?
+  charts     Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  deletedAt  DateTime? // Optional soft delete
 
-  user       User?    @relation(fields: [userId], references: [id])
-  csvRows    CsvRow[] 
-  aiQueries  AIQuery[] 
+  user       User?     @relation(fields: [userId], references: [id])
+  csvRows    CsvRow[]
+  aiQueries  AIQuery[]
+  usageLog   UploadUsage[]
+
+  @@index([guestId])
 }
 
 model CsvRow {
@@ -84,10 +292,732 @@ model AIQuery {
   fileId    String
   userId    String?
   question  String
-  shareId   String?  @unique  
+  shareId   String?  @unique
   response  String
   createdAt DateTime @default(now())
 
   file      Upload   @relation(fields: [fileId], references: [id])
   user      User?    @relation(fields: [userId], references: [id])
+  sharedChat SharedChat?  // Add this line to establish the relationship
+}
+
+model UserSubscription {
+  id                String           @id @default(uuid())
+  userId            String           @unique
+  user              User             @relation(fields: [userId], references: [id])
+  plan              SubscriptionPlan @default(FREE)
+  
+  // Add these new fields
+  billingCycle      BillingCycle     @default(MONTHLY)
+  price             Float            @default(0)
+  nextBillingDate   DateTime?
+  autoRenew         Boolean          @default(true)
+  gatewayCustomerId String?          // Customer ID in Razorpay
+  gatewaySubscriptionId String?      // Subscription ID in Razorpay
+  trialEnds         DateTime?
+  
+  // Existing fields
+  isActive          Boolean          @default(true)
+  startDate         DateTime         @default(now())
+  endDate           DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  
+  // Add these relations
+  payments          Payment[]
+  invoices          Invoice[]
+}
+model Payment {
+  id                String        @id @default(uuid())
+  amount            Float
+  currency          String        @default("INR")
+  status            PaymentStatus
+  gateway           PaymentGateway
+  gatewayPaymentId  String?       // Payment ID from Razorpay
+  gatewayOrderId    String?       // Order ID from Razorpay
+  gatewaySignature  String?       // Payment signature from Razorpay for verification
+  paymentMode       PaymentMode?
+  description       String?
+  
+  subscriptionId    String?
+  subscription      UserSubscription? @relation(fields: [subscriptionId], references: [id])
+  
+  invoiceId         String?
+  invoice           Invoice?      @relation(fields: [invoiceId], references: [id])
+  
+  metadata          Json?         // Additional payment details
+  
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([status])
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([gatewayPaymentId])
+  @@index([createdAt])
+}
+model Invoice {
+  id                String        @id @default(uuid())
+  invoiceNumber     String        @unique // Format: INV-XXXX
+  amount            Float
+  tax               Float         @default(0)
+  discount          Float         @default(0)
+  totalAmount       Float
+  currency          String        @default("INR")
+  status            InvoiceStatus @default(DRAFT)
+  dueDate           DateTime
+  
+  items             InvoiceItem[]
+  payments          Payment[]
+  
+  subscriptionId    String?
+  subscription      UserSubscription? @relation(fields: [subscriptionId], references: [id])
+  
+  notes             String?
+  termsAndConditions String?      @db.Text
+  
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  paidAt            DateTime?
+  
+  @@index([status])
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([createdAt])
+  @@index([dueDate])
+}
+
+model InvoiceItem {
+  id                String        @id @default(uuid())
+  description       String
+  quantity          Int
+  unitPrice         Float
+  amount            Float         // quantity * unitPrice
+  tax               Float         @default(0)
+  discount          Float         @default(0)
+  
+  invoiceId         String
+  invoice           Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([invoiceId])
+}
+
+model PricingPlan {
+  // Existing fields...
+  id                String           @id @default(uuid())
+  name              String
+  description       String?
+  planType          SubscriptionPlan
+  monthlyPrice      Float
+  quarterlyPrice    Float?
+  semiAnnualPrice   Float?
+  annualPrice       Float?
+  currency          String           @default("INR")
+  features          Json             // Array of features included
+  trialDays         Int              @default(0)
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  
+  // Add this relation
+  priceHistory      PricingPlanHistory[]
+  
+  @@unique([planType])
+}
+
+model WebhookEvent {
+  id                String           @id @default(uuid())
+  gateway           PaymentGateway
+  eventType         String           // payment.authorized, subscription.charged, etc.
+  payload           Json             // Full webhook payload
+  status            String           @default("RECEIVED") // RECEIVED, PROCESSED, FAILED
+  processedAt       DateTime?
+  error             String?
+  
+  createdAt         DateTime         @default(now())
+  
+  @@index([gateway])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UploadUsage {
+  id            String    @id @default(uuid())
+  userId        String?
+  ipAddress     String
+  uploadDate    DateTime  @default(now()) // Backend should handle timezone (UTC/server)
+  fileId        String?
+  upload        Upload?   @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([ipAddress])
+  @@index([uploadDate])
+}
+
+model SharedChat {
+  id           String    @id @default(uuid())
+  title        String
+  previewText  String
+  aiQueryId    String    @unique
+  aiQuery      AIQuery   @relation(fields: [aiQueryId], references: [id], onDelete: Cascade)
+  isBookmarked Boolean   @default(false)
+  isNew        Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sharedBy     String    // User ID who shared the chat
+  sharedWith   SharedChatUser[]
+}
+
+model SharedChatUser {
+  id           String    @id @default(uuid())
+  sharedChatId String
+  sharedChat   SharedChat @relation(fields: [sharedChatId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id]) // Add this relationship
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+  
+  @@unique([sharedChatId, userId])
+  @@index([userId])
+}
+model DataExport {
+  id          String            @id @default(uuid())
+  name        String
+  dataType    DataType
+  format      DataExportFormat
+  recordCount Int?
+  fileSize    Int?              // Size in bytes
+  filePath    String?
+  status      DataOperationStatus
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model DataImport {
+  id             String            @id @default(uuid())
+  name           String
+  dataType       DataType
+  format         DataExportFormat
+  filePath       String
+  recordCount    Int?
+  fileSize       Int?              // Size in bytes
+  status         DataOperationStatus
+  successCount   Int?
+  failedCount    Int?
+  validationLog  String?           // JSON string containing validation results
+  userId         String
+  user           User              @relation(fields: [userId], references: [id])
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model DataBackup {
+  id          String            @id @default(uuid())
+  name        String
+  type        BackupType
+  fileSize    Int?              // Size in bytes
+  filePath    String?
+  status      DataOperationStatus
+  duration    Int?              // Duration in seconds
+  retention   Int               // Days to retain this backup
+  userId      String?           // Null for system automated backups
+  user        User?             @relation(fields: [userId], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model DataSettings {
+  id                     String    @id @default(uuid())
+  backupFrequency        String    @default("DAILY") // HOURLY, DAILY, WEEKLY
+  backupTime             String    @default("00:00") // 24-hour format
+  backupRetention        Int       @default(7)       // Days
+  backupStorage          String    @default("LOCAL") // LOCAL, S3, etc.
+  maxExportSize          Int       @default(50)      // MB
+  exportRetention        Int       @default(24)      // Hours
+  importValidation       Boolean   @default(true)
+  importRollback         Boolean   @default(true)
+  activityLogsRetention  Int       @default(30)      // Days
+  deletedDataRetention   Int       @default(7)       // Days
+  autoPurgeData          Boolean   @default(false)
+  analyticsRetention     Int       @default(180)     // Days
+  connectionPoolSize     Int       @default(25)
+  queryTimeout           Int       @default(10)      // Seconds
+  queryLogging           Boolean   @default(true)
+  maintenanceWindow      String    @default("SUN,01:00-03:00")
+  dataEncryption         Boolean   @default(true)
+  dataAnonymization      Boolean   @default(false)
+  dataAccessAuditing     Boolean   @default(true)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // There should only be one settings record
+  @@map("data_settings")
+}
+
+model LoginAttempt {
+  id              String    @id @default(uuid())
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id])
+  email           String
+  ipAddress       String
+  userAgent       String
+  status          String    // Success, Failed
+  reason          String?   // Reason for failure, if applicable
+  location        String?   // Location based on IP
+  device          String?   // Browser and OS
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([email])
+  @@index([ipAddress])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Active sessions
+model UserSession {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token           String    @unique
+  ipAddress       String
+  userAgent       String
+  device          String?   // Browser and OS info
+  location        String?   // Location based on IP
+  type            String    // Web, Mobile, API 
+  lastActivityAt  DateTime  @default(now())
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([token])
+  @@index([lastActivityAt])
+}
+
+// Security audit logging
+model AuditLog {
+  id              String    @id @default(uuid())
+  action          String    // User created, Security setting changed, etc.
+  description     String
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id])
+  ipAddress       String
+  resourceType    String    // users, settings, api-keys, etc.
+  resourceId      String?   // Specific ID if applicable
+  metadata        Json?     // Additional details
+  createdAt       DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([createdAt])
+}
+
+// Security settings
+model SecuritySettings {
+  id                      String    @id @default(uuid())
+  // Password policy
+  minPasswordLength       Int       @default(12)
+  requirePasswordComplexity Boolean  @default(true)
+  passwordExpirationDays  Int       @default(90) 
+  passwordHistoryCount    Int       @default(5)
+  accountLockoutAttempts  Int       @default(5)
+  
+  // MFA settings
+  requireMfa              Boolean   @default(false)
+  allowedMfaMethods       String[]  @default(["authenticator", "sms", "email", "security_key"])
+  mfaFrequencyDays        Int       @default(30)
+  
+  // Session security
+  sessionTimeoutMinutes   Int       @default(60)
+  maxConcurrentSessions   Int       @default(5)
+  enforceIpBinding        Boolean   @default(false)
+  
+  // API security
+  apiKeyExpirationDays    Int       @default(90)
+  apiRateLimitPerMinute   Int       @default(100)
+  apiIpRestrictions       String[]  @default([])
+  
+  // Security alerts
+  alertOnFailedLogins     Int       @default(3) // Alert after X failed attempts
+  alertOnNewAdminUsers    Boolean   @default(true)
+  alertOnFileUploadIssues Boolean   @default(true)
+  
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  
+  // There should only be one settings record
+  @@map("security_settings")
+}
+model SecurityAlert {
+  id              String    @id @default(uuid())
+  severity        String    // High, Medium, Low
+  status          String    // Active, Investigating, Resolved
+  type            String    // Login attempt, File upload, etc.
+  message         String
+  details         String?   
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id])
+  ipAddress       String?
+  location        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  resolvedAt      DateTime?
+  resolvedById    String?
+  resolvedBy      User?     @relation("AlertResolver", fields: [resolvedById], references: [id])
+  
+  @@index([status])
+  @@index([type])
+  @@index([severity])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Security recommendations
+model SecurityRecommendation {
+  id              String    @id @default(uuid())
+  title           String
+  description     String
+  status          String    // Pending, In Progress, Completed
+  priority        String    // High, Medium, Low
+  category        String    // Authentication, Data Protection, etc.
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+  
+  @@index([status])
+  @@index([priority])
+}
+
+model Content {
+  id              String          @id @default(uuid())
+  title           String
+  type            ContentType
+  category        ContentCategory
+  status          ContentStatus   @default(DRAFT)
+  content         String          @db.Text
+  summary         String?         @db.Text
+  readTime        Int             @default(0) // in minutes
+  featuredImage   String?
+  authorId        String
+  author          User            @relation(fields: [authorId], references: [id])
+  views           Int             @default(0)
+  tags            String[]        @default([])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  publishedAt     DateTime?
+  faqs            FAQ[]           // For documentation that has linked FAQs
+
+  @@index([type])
+  @@index([category])
+  @@index([status])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+model FAQ {
+  id              String          @id @default(uuid())
+  question        String
+  answer          String          @db.Text
+  category        ContentCategory
+  status          ContentStatus   @default(DRAFT)
+  authorId        String
+  author          User            @relation(fields: [authorId], references: [id])
+  views           Int             @default(0)
+  contentId       String?         // Optional relation to documentation
+  content         Content?        @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  publishedAt     DateTime?
+
+  @@index([category])
+  @@index([status])
+  @@index([authorId])
+  @@index([contentId])
+}
+
+model ContentAnalytics {
+  id              String    @id @default(uuid())
+  contentId       String
+  date            DateTime  @default(now())
+  views           Int       @default(0)
+  uniqueVisitors  Int       @default(0)
+  averageReadTime Int       @default(0)  // in seconds
+  bounceRate      Float?    // percentage 
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([contentId, date]) // One analytics record per content per day
+  @@index([contentId])
+  @@index([date])
+}
+
+model SupportTicket {
+  id              String          @id @default(uuid())
+  ticketId        String          @unique // Format: T-XXXX
+  subject         String
+  description     String          @db.Text
+  status          TicketStatus    @default(OPEN)
+  priority        TicketPriority  @default(MEDIUM)
+  category        TicketCategory  @default(GENERAL)
+  
+  userId          String          // Customer who created the ticket
+  user            User            @relation(fields: [userId], references: [id])
+  
+  assignedToId    String?         // Support agent assigned to ticket
+  assignedTo      User?           @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  
+  responses       TicketResponse[]
+  attachments     TicketAttachment[]
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  
+  @@index([status])
+  @@index([priority])
+  @@index([category])
+  @@index([userId])
+  @@index([assignedToId])
+  @@index([createdAt])
+}
+model TicketResponse {
+  id              String          @id @default(uuid())
+  content         String          @db.Text
+  isInternal      Boolean         @default(false)  // True for internal notes
+  
+  ticketId        String
+  ticket          SupportTicket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  userId          String          // User who wrote the response
+  user            User            @relation(fields: [userId], references: [id])
+  
+  attachments     TicketAttachment[]
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([ticketId])
+  @@index([userId])
+  @@index([createdAt])
+}
+model TicketAttachment {
+  id              String          @id @default(uuid())
+  filename        String
+  path            String
+  mimeType        String
+  size            Int
+  
+  ticketId        String?
+  ticket          SupportTicket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  responseId      String?
+  response        TicketResponse? @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime        @default(now())
+  
+  @@index([ticketId])
+  @@index([responseId])
+}model LiveChatSession {
+  id              String          @id @default(uuid())
+  visitorId       String
+  visitorName     String?
+  visitorEmail    String?
+  visitorLocation String?
+  
+  agentId         String?
+  agent           User?           @relation(fields: [agentId], references: [id])
+  
+  status          String          @default("ACTIVE") // ACTIVE, ENDED, TRANSFERRED
+  page            String?         // Current page where chat started
+  duration        Int?            // Duration in seconds
+  rating          Int?            // Customer satisfaction 1-5
+  feedback        String?
+  
+  messages        ChatMessage[]
+  
+  startedAt       DateTime        @default(now())
+  endedAt         DateTime?
+  
+  @@index([visitorId])
+  @@index([agentId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model ChatMessage {
+  id              String          @id @default(uuid())
+  content         String
+  isFromVisitor   Boolean         @default(false)
+  
+  sessionId       String
+  session         LiveChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime        @default(now())
+  
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+model CannedResponse {
+  id              String          @id @default(uuid())
+  title           String
+  content         String          @db.Text
+  category        String?
+  createdBy       String
+  user            User            @relation(fields: [createdBy], references: [id])
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([category])
+  @@index([createdBy])
+}
+model SupportSettings {
+  id                      String    @id @default(uuid())
+  
+  // Hours and availability
+  emailSupportHours       String    @default("Monday-Friday, 9 AM - 6 PM EST")
+  liveChatAvailability    String    @default("Monday-Friday, 9 AM - 6 PM EST")
+  responseTimeTarget      Int       @default(4) // Target in hours
+  weekendSupport          Boolean   @default(false)
+  
+  // Automated responses
+  autoAcknowledgment      Boolean   @default(true)
+  suggestKbArticles       Boolean   @default(true)
+  aiPoweredResponses      Boolean   @default(false)
+  
+  // Ticket management
+  autoCategorization      Boolean   @default(true)
+  autoAssignment          Boolean   @default(false)
+  autoAssignmentMethod    String    @default("category") // category, round-robin, load-balanced
+  autoCloseTickets        Boolean   @default(true)
+  autoCloseDays           Int       @default(7)
+  
+  // Notification settings
+  emailNotifications      Boolean   @default(true)
+  slackIntegration        Boolean   @default(false)
+  slackWebhook            String?
+  highPriorityAlerts      Boolean   @default(true)
+  
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  
+  // Only one settings record
+  @@map("support_settings")
+}
+
+model BillingSettings {
+  id                    String       @id @default(uuid())
+  invoiceFormat         InvoiceFormat @default(PDF)
+  invoiceNumberFormat   String       @default("INV-YYYY-###")
+  invoiceRecipients     String[]     @default(["billing@clarityhub.com"])
+  
+  // Company Information
+  companyName           String       @default("ClarityHub Inc")
+  companyAddress        String       @default("123 Tech Lane, San Francisco, CA 94107")
+  companyEmail          String       @default("billing@clarityhub.com")
+  companyPhone          String       @default("+1 (555) 123-4567")
+  companyWebsite        String       @default("https://clarityhub.com")
+  companyLogo           String?      // URL to logo image
+  companyVatNumber      String?
+  companyRegNumber      String?
+  
+  // Payment Settings
+  gracePeriod           Int          @default(3) // Days before deactivating after failed payment
+  paymentRetryAttempts  Int          @default(3)
+  paymentRetryInterval  Int          @default(2) // Days between retry attempts
+  
+  // Refund Settings
+  refundPolicy          RefundPolicy @default(PRORATED_REFUND)
+  refundPolicyText      String       @default("Prorated refunds are available for unused subscription periods.") @db.Text
+  
+  // Tax Settings
+  taxRate               Float        @default(0) // Default tax rate as percentage
+  taxName               String       @default("Tax")
+  taxNumber             String?      // Company tax number
+  collectTaxInfo        Boolean      @default(false)
+  
+  // Notification Settings
+  sendPaymentReminders  Boolean      @default(true)
+  reminderDaysBefore    Int          @default(3)
+  sendReceiptEmails     Boolean      @default(true)
+  sendFailedPaymentAlerts Boolean    @default(true)
+  
+  // Dunning Management (handling failed payments)
+  dunningEnabled        Boolean      @default(true)
+  dunningEmailTemplate  String?      @db.Text
+  
+  // Custom Email Templates
+  invoiceEmailSubject   String       @default("Your ClarityHub Invoice #{invoice_number}")
+  invoiceEmailTemplate  String?      @db.Text
+  receiptEmailSubject   String       @default("Payment Receipt from ClarityHub")
+  receiptEmailTemplate  String?      @db.Text
+  
+  // Terms & Conditions
+  termsAndConditions    String?      @db.Text
+  privacyPolicy         String?      @db.Text
+  
+  // Auto Proration
+  enableAutoProratedCredits Boolean  @default(true)
+  
+  updatedBy             String?      // Admin who last updated settings
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  
+  // Only one settings record
+  @@map("billing_settings")
+}
+
+// Add this to track admin changes to plan pricing
+model PricingPlanHistory {
+  id                String           @id @default(uuid())
+  planId            String
+  plan              PricingPlan      @relation(fields: [planId], references: [id])
+  
+  previousMonthlyPrice Float
+  previousQuarterlyPrice Float?
+  previousSemiAnnualPrice Float?
+  previousAnnualPrice Float?
+  
+  newMonthlyPrice   Float
+  newQuarterlyPrice Float?
+  newSemiAnnualPrice Float?
+  newAnnualPrice    Float?
+  
+  changedBy         String           // Admin who made the change
+  reason            String?          // Reason for the price change
+  
+  createdAt         DateTime         @default(now())
+  
+  @@index([planId])
+  @@index([createdAt])
 }

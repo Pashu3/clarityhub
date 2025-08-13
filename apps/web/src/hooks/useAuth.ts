@@ -1,209 +1,278 @@
-"use client";
+import { useState, useEffect, useCallback } from 'react';
+import { registerUser, loginUser, requestPasswordReset, getAuthStatus, logoutUser } from '@/app/actions/auth';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+// Define a type for the user data
+interface UserInfo {
+  id: string;
+  email: string;
+  name: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  picture?: string;
+  role?: string;
+  isActive?: boolean;
+}
 
 export function useAuth() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [companyName, setCompanyName] = useState("");
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [userData, setUserData] = useState<UserInfo | null>(null);
 
-  // Get password strength
-  const getPasswordStrength = (password: string) => {
-    if (!password) return { label: "", color: "", width: "0%" };
+  const calculatePasswordStrength = () => {
+    if (!password) return { width: '0%', color: 'bg-gray-300', label: 'None' };
     
-    const length = password.length;
-    const hasLowercase = /[a-z]/.test(password);
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasNumbers = /\d/.test(password);
-    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    const strength = {
+      hasLower: /[a-z]/.test(password),
+      hasUpper: /[A-Z]/.test(password),
+      hasNumber: /[0-9]/.test(password),
+      hasSpecial: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+      isLong: password.length >= 8,
+    };
     
-    const conditions = [
-      length >= 8,
-      hasLowercase,
-      hasUppercase,
-      hasNumbers,
-      hasSpecial
-    ];
+    const criteriaCount = Object.values(strength).filter(Boolean).length;
     
-    const strength = conditions.filter(Boolean).length;
-    
-    if (strength <= 1) {
-      return { label: "Weak", color: "bg-red-500", width: "20%" };
-    } else if (strength <= 3) {
-      return { label: "Moderate", color: "bg-amber-500", width: "60%" };
-    } else {
-      return { label: "Strong", color: "bg-green-500", width: "100%" };
-    }
+    if (criteriaCount <= 1) return { width: '20%', color: 'bg-red-500', label: 'Weak' };
+    if (criteriaCount === 2) return { width: '40%', color: 'bg-orange-500', label: 'Fair' };
+    if (criteriaCount === 3) return { width: '60%', color: 'bg-yellow-500', label: 'Good' };
+    if (criteriaCount === 4) return { width: '80%', color: 'bg-blue-500', label: 'Strong' };
+    return { width: '100%', color: 'bg-green-500', label: 'Very Strong' };
   };
-  
-  const passwordStrength = getPasswordStrength(password);
-  
-  const handleLogin = async (e: React.FormEvent, onSuccess?: () => void) => {
-    e.preventDefault();
-    setError(null);
+
+  const passwordStrength = calculatePasswordStrength();
+
+const checkAuthStatus = useCallback(async () => {
+  try {
     setIsLoading(true);
     
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // For demo purposes - validation
-      if (!email.includes("@")) {
-        throw new Error("Please enter a valid email address");
-      }
-      
-      if (password.length < 6) {
-        throw new Error("Password must be at least 6 characters");
-      }
-      
-      // Success
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        router.push('/dashboard');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
-    } finally {
-      setIsLoading(false);
+    const statusResponse = await getAuthStatus();
+    
+    setIsAuthenticated(statusResponse.isAuthenticated);
+    
+    setUserData(statusResponse.user);
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('isAuthenticated', statusResponse.isAuthenticated ? 'true' : 'false');
     }
-  };
+    
+    return statusResponse.isAuthenticated;
+  } catch (err) {
+    console.error('Error checking auth status:', err);
+    console.error('Error details:', {
+      message: err instanceof Error ? err.message : 'Unknown error',
+      stack: err instanceof Error ? err.stack : 'No stack trace'
+    });
+    
+    setIsAuthenticated(false);
+    setUserData(null);
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('isAuthenticated', 'false');
+    }
+    
+    return false;
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
+
+useEffect(() => {
+  checkAuthStatus();
   
-  const handleForgotPassword = async (e: React.FormEvent) => {
+  const interval = setInterval(() => {
+    checkAuthStatus();
+  }, 5 * 60 * 1000);
+  
+  return () => clearInterval(interval);
+}, [checkAuthStatus]);
+
+  useEffect(() => {
+    const loadInitialAuthState = () => {
+      if (typeof window !== 'undefined') {
+        const storedAuthStatus = localStorage.getItem('isAuthenticated');
+        if (storedAuthStatus) {
+          setIsAuthenticated(storedAuthStatus === 'true');
+          
+          if (storedAuthStatus === 'true') {
+            checkAuthStatus();
+          }
+        } else {
+          checkAuthStatus();
+        }
+      }
+    };
+
+    loadInitialAuthState();
+  }, [checkAuthStatus]);
+
+  // Handle registration
+  const handleRegister = async (e: React.FormEvent, onSuccess: () => void) => {
     e.preventDefault();
-    setError(null);
-    setIsLoading(true);
     
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // For demo purposes
-      if (!email.includes("@")) {
-        throw new Error("Please enter a valid email address");
-      }
-      
-      // Success
-      setError(null);
-      alert(`Password reset link sent to ${email}`);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send reset link. Please try again.");
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  const validateRegisterStep1 = () => {
-    // Validate form
-    if (!fullName.trim()) {
-      setError("Full name is required");
-      return false;
-    }
-    
-    if (!email.includes("@")) {
-      setError("Please enter a valid email address");
-      return false;
-    }
-    
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return false;
-    }
-    
-    return true;
-  };
-  
-  const validateRegisterStep2 = () => {
-    // Validate form
-    if (!companyName.trim()) {
-      setError("Company name is required");
-      return false;
-    }
-    
-    if (!agreeToTerms) {
-      setError("You must agree to the terms and privacy policy");
-      return false;
-    }
-    
-    return true;
-  };
-  
-  const handleRegisterComplete = async (e: React.FormEvent, onSuccess?: () => void) => {
-    e.preventDefault();
-    setError(null);
-    
-    if (!validateRegisterStep2()) {
+    if (!name || !email || !password) {
+      setError('Please fill out all required fields');
       return;
     }
-    
-    setIsLoading(true);
-    
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return;
+    }
+
+    if (!agreeToTerms) {
+      setError('You must agree to the terms and conditions');
+      return;
+    }
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      setIsLoading(true);
+      setError(null);
       
-      // Success
-      if (onSuccess) {
+      const response = await registerUser({
+        name: name.trim(),
+        email,
+        password
+      });
+      
+      if (response.success) {
+        setIsAuthenticated(true);
+        
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('isAuthenticated', 'true');
+        }
+        
+        await checkAuthStatus();
+        
         onSuccess();
       } else {
-        // Registration successful message
-        alert("Registration successful! Welcome to ClarityHub.");
-        router.push('/dashboard');
+        setError(response.message || 'Registration failed');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
+      setError('An unexpected error occurred');
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
   };
-  
-  const resetForm = () => {
-    setEmail("");
-    setPassword("");
-    setFullName("");
-    setCompanyName("");
-    setAgreeToTerms(false);
-    setError(null);
+
+  const handleLogin = async (e: React.FormEvent, onSuccess: () => void) => {
+    e.preventDefault();
+    
+    if (!email || !password) {
+      setError('Please enter your email and password');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await loginUser({
+        email,
+        password
+      });
+      
+      if (response.success) {
+        setIsAuthenticated(true);
+        
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('isAuthenticated', 'true');
+        }
+        
+        await checkAuthStatus();
+        
+        onSuccess();
+      } else {
+        setError(response.message || 'Invalid email or password');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogout = async (onSuccess?: () => void) => {
+    try {
+      setIsLoading(true);
+      const response = await logoutUser();
+      
+      if (response.success) {
+        setIsAuthenticated(false);
+        setUserData(null);
+        
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('isAuthenticated', 'false');
+        }
+        
+        if (onSuccess) {
+          onSuccess();
+        }
+      }
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent, onSuccess: () => void) => {
+    e.preventDefault();
+    
+    if (!email) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await requestPasswordReset(email);
+      
+      if (response.success) {
+        onSuccess();
+      } else {
+        setError(response.message || 'Failed to send password reset email');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return {
-    // State
+    name,
+    setName,
     email,
     setEmail,
     password,
     setPassword,
-    fullName,
-    setFullName,
-    companyName,
-    setCompanyName,
+    rememberMe,
+    setRememberMe,
     agreeToTerms,
     setAgreeToTerms,
     showPassword,
     setShowPassword,
-    rememberMe,
-    setRememberMe,
-    isLoading,
     error,
     setError,
+    isLoading,
+    isAuthenticated,
+    userData,
     passwordStrength,
-    
-    // Methods
+    checkAuthStatus,
+    handleRegister,
     handleLogin,
+    handleLogout,
     handleForgotPassword,
-    validateRegisterStep1,
-    validateRegisterStep2,
-    handleRegisterComplete,
-    resetForm,
-    getPasswordStrength
   };
 }
